@@ -62,7 +62,7 @@ The following deliverables are expected as part of your project:
 
 Regardless of the path you choose, we are primarily interested in understanding your thought process and engineering practices.
 
-Save everything in a private Git repository and share it with us. Deliver a clean repository: remove any redundant files, replace this README with your own, and provide clear instructions for setting up and running your project. We expect you to spend 3-4 hours on the assessment, so apply your best judgment when prioritizing tasks.
+Save everything in a private Git repository and share it with us. Deliver a clean repository: remove any redundant files, replace this README with your own, and provide clear instructions for setting up and running your project. We expect you to spend maximum 6 hours on the assessment, so apply your best judgment when prioritizing tasks.
 
 ### Stretch Goals
 
