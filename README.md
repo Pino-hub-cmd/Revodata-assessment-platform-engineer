@@ -84,7 +84,7 @@ Following are a number of stretch goals of increasing difficulty. We **do not ex
 
 ### BONUS
 
-- **Level 3 / over 9000 :**
+- **Level 3 :**
   - [ ] Configure and run your GitHub Actions pipeline on a **self-hosted runner** that you provision in the same cloud environment.
 
 ## Review
