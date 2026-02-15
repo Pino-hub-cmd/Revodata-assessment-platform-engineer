@@ -1,113 +1,67 @@
-import requests
 import logging
-import os
-import json
-
-IMDS_ENDPOINT = "http://169.254.169.254/metadata/identity/oauth2/token"
-IMDS_API_VERSION = "2018-02-01"
-DATABRICKS_RESOURCE = "https://databricks.azure.net"
+from pyspark.sql import SparkSession
+from pyspark.dbutils import DBUtils
+from databricks.sdk import WorkspaceClient
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
 
-def get_workspace_url():
-    # Available in Databricks runtime
-    return os.environ.get("DATABRICKS_HOST")
 
-def get_managed_identity_token():
-    logging.info("Requesting token via Managed Identity")
+def get_workspace_host():
+    spark = SparkSession.builder.getOrCreate()
+    workspace_url = spark.conf.get("spark.databricks.workspaceUrl")
 
-    params = {
-        "api-version": IMDS_API_VERSION,
-        "resource": DATABRICKS_RESOURCE
-    }
+    if not workspace_url:
+        raise Exception("Unable to retrieve workspace URL from Spark config")
 
-    headers = {
-        "Metadata": "true"
-    }
+    return f"https://{workspace_url}"
 
-    response = requests.get(IMDS_ENDPOINT, params=params, headers=headers, timeout=10)
 
-    if response.status_code != 200:
-        raise Exception(f"Failed to retrieve token: {response.text}")
+def get_workspace_token():
+    spark = SparkSession.builder.getOrCreate()
+    dbutils = DBUtils(spark)
 
-    token = response.json().get("access_token")
+    token = dbutils.secrets.get("enforce-scope", "dbx-token")
 
     if not token:
-        raise Exception("Token not found in IMDS response")
+        raise Exception("Unable to retrieve token from secret scope")
 
     return token
 
-def list_serving_endpoints(host, token):
-    url = f"{host}/api/2.0/serving-endpoints"
-    headers = {"Authorization": f"Bearer {token}"}
-
-    response = requests.get(url, headers=headers, timeout=10)
-
-    if response.status_code != 200:
-        raise Exception(f"Failed listing endpoints: {response.text}")
-
-    return response.json().get("endpoints", [])
-
-def set_rate_limit_zero(host, token, endpoint_name):
-    url = f"{host}/api/2.0/serving-endpoints/{endpoint_name}/config"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "rate_limits": [
-            {
-                "key": "user",
-                "calls": 0
-            }
-        ]
-    }
-
-    response = requests.patch(url, headers=headers, json=payload, timeout=10)
-
-    if response.status_code not in (200, 201):
-        raise Exception(f"Failed updating {endpoint_name}: {response.text}")
 
 def enforce():
-    host = get_workspace_url()
-    token = get_managed_identity_token()
+    host = get_workspace_host()
+    token = get_workspace_token()
 
-    endpoints = list_serving_endpoints(host, token)
+    w = WorkspaceClient(
+        host=host,
+        token=token
+    )
 
-    updated = 0
-    skipped = 0
-    failed = 0
+    endpoints = list(w.serving_endpoints.list())
+
+    logging.info(f"Found {len(endpoints)} endpoints")
 
     for ep in endpoints:
-        name = ep.get("name")
+        logging.info(f"Processing endpoint: {ep.name}")
 
         try:
-            config = ep.get("config", {})
-            rate_limits = config.get("rate_limits", [])
+            w.serving_endpoints.update_config(
+                name=ep.name,
+                rate_limits=[{
+                    "key": "user",
+                    "calls": 0
+                }]
+            )
 
-            already_zero = any(r.get("calls") == 0 for r in rate_limits)
-
-            if already_zero:
-                logging.info(f"{name} already compliant")
-                skipped += 1
-                continue
-
-            set_rate_limit_zero(host, token, name)
-            logging.info(f"{name} updated to zero rate limit")
-            updated += 1
+            logging.info(f"Rate limit set to 0 for {ep.name}")
 
         except Exception as e:
-            logging.error(f"Error processing {name}: {str(e)}")
-            failed += 1
+            logging.error(f"Failed updating {ep.name}: {str(e)}")
+            raise
 
-    logging.info("===== SUMMARY =====")
-    logging.info(f"Updated: {updated}")
-    logging.info(f"Skipped: {skipped}")
-    logging.info(f"Failed: {failed}")
 
 if __name__ == "__main__":
     enforce()
